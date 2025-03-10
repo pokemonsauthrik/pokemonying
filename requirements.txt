@@ -1,0 +1,7 @@
+web3
+PyQt5
+requests
+urllib3
+anticaptchaofficial>=1.0.0
+selenium
+webdriver-manager
