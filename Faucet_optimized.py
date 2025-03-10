@@ -150,33 +150,60 @@ class SeleniumFaucetWorker(QThread):
         solver.set_website_url("https://testnet-faucet.autheo.com")
         solver.set_website_key("6LfOA04pAAAAAL9ttkwIz40hC63_7IsaU2MgcwVH")
         
-        # 增加更多配置以提高成功率
+        # 增加高级配置
         solver.set_soft_id(0)
-        # 设置为不可见类型的reCAPTCHA
         solver.set_is_invisible(1)
+        solver.set_recaptcha_timeout(120)  # 增加超时时间
+        solver.set_polling_interval(5)  # 设置轮询间隔
         
         self.log.emit("开始使用AntiCaptcha解决验证码...")
         
-        try:
-            for attempt in range(3):
-                self.log.emit(f"尝试解决验证码 (尝试 {attempt+1}/3)...")
+        # 增强重试机制
+        max_attempts = 5
+        base_delay = 10
+        for attempt in range(max_attempts):
+            try:
+                self.log.emit(f"验证码解决尝试 {attempt+1}/{max_attempts}...")
+                response = solver.solve_and_return_solution()
                 
-                try:
-                    response = solver.solve_and_return_solution()
-                    
-                    if response != 0:
-                        self.log.emit(f"验证码解决成功! 响应长度: {len(response)}")
-                        return response
-                    else:
-                        error_msg = solver.err_string if hasattr(solver, 'err_string') else "未知错误"
-                        self.log.emit(f"验证码解决失败: {error_msg}")
-                        time.sleep(5)  # 等待一段时间后重试
-                except Exception as e:
-                    self.log.emit(f'验证码解决出错: {str(e)}')
-                    time.sleep(5)
-            return None
+                if response:
+                    self.log.emit(f"验证码解决成功! 响应长度: {len(response)}")
+                    return response
+                
+                error_msg = solver.err_string or "未知错误"
+                self.log.emit(f"解决失败: {error_msg}")
+                
+                # 指数退避策略
+                delay = base_delay * (2 ** attempt)
+                self.log.emit(f"{delay}秒后重试...")
+                time.sleep(delay)
+                
+                # 自动切换备用服务
+                if "ERROR_NO_SLOT_AVAILABLE" in error_msg and attempt == 2:
+                    self.log.emit("切换备用验证码服务...")
+                    return self.use_2captcha_fallback()
+                
+            except Exception as e:
+                self.log.emit(f'解决出错: {str(e)}')
+                time.sleep(10)
+        
+        self.log.emit("所有验证码服务尝试失败")
+        return None
+
+    def use_2captcha_fallback(self):
+        """备用2Captcha服务解决方案"""
+        try:
+            from twocaptcha import TwoCaptcha
+            
+            solver = TwoCaptcha('YOUR_2CAPTCHA_KEY')
+            result = solver.recaptcha(
+                sitekey='6LfOA04pAAAAAL9ttkwIz40hC63_7IsaU2MgcwVH',
+                url='https://testnet-faucet.autheo.com',
+                invisible=1
+            )
+            return result.get('code')
         except Exception as e:
-            self.log.emit(f'代理格式错误: {str(e)}')
+            self.log.emit(f'备用验证码服务失败: {str(e)}')
             return None
     
     def on_proxy_check_finished(self, success):
